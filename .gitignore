@@ -1,0 +1,21 @@
+node_modules
+dist
+*.tsbuildinfo
+coverage
+
+# Keep environment variables out of version control
+.env
+
+# Banco SQLite local de desenvolvimento — em produção, os dados vivem no Postgres do host.
+dev.db
+
+/generated/prisma
+
+# Fotos enviadas via painel admin (conteúdo dinâmico, não versionar)
+/uploads/news/*
+!/uploads/news/.gitkeep
+/uploads/media/*
+!/uploads/media/.gitkeep
+
+# Log da ingestão automática diária (ver scripts/run-ingest.bat)
+/logs/*.log

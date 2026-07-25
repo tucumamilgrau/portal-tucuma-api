@@ -1,0 +1,141 @@
+// Schema da API do Portal Tucumã Milgrau.
+// Banco local: SQLite (zero-instalação, sem Docker disponível nesta máquina).
+// Para produção: trocar `provider = "sqlite"` por "postgresql" e ajustar
+// DATABASE_URL em prisma.config.ts/.env — o resto do schema não muda.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum NewsStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+model Category {
+  id    String @id @default(cuid())
+  slug  String @unique
+  name  String
+  color String @default("primary") // primary | alert | highlight | green
+
+  news News[]
+}
+
+model Author {
+  id         String @id @default(cuid())
+  slug       String @unique
+  name       String
+  initials   String
+  specialty  String
+  bio        String @default("")
+
+  news News[]
+}
+
+model News {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  title       String
+  subtitle    String     @default("")
+  excerpt     String
+  body        String     @default("")
+  coverIcon   String     @default("📰")
+  coverImage  String?
+  readTimeMin Int        @default(4)
+  views       Int        @default(0)
+  status      NewsStatus @default(PUBLISHED)
+  publishedAt DateTime   @default(now())
+  // Controla o slider "Notícias em Destaque" da home — marcado manualmente no /admin.
+  featured    Boolean    @default(false)
+
+  // Preenchidos apenas para notícias importadas automaticamente (ver scripts/ingest-news.ts).
+  // sourceUrl é único para servir de chave de deduplicação entre execuções do ingestor.
+  sourceUrl  String? @unique
+  sourceName String?
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+
+  authorId String
+  author   Author @relation(fields: [authorId], references: [id])
+
+  comments Comment[]
+
+  @@index([status, publishedAt])
+}
+
+enum UserRole {
+  READER
+  ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  city         String   @default("")
+  role         UserRole @default(READER)
+  createdAt    DateTime @default(now())
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  authorName String
+  text       String
+  likes      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  // Moderação: aprovado nasce true (comentários entram no ar direto), a menos que o
+  // filtro heurístico (ver ModerationSettings) marque flagged=true na criação — nesse
+  // caso approved nasce false e o comentário fica pendente na fila de revisão.
+  approved    Boolean @default(true)
+  flagged     Boolean @default(false)
+  reportCount Int     @default(0)
+
+  newsId String
+  news   News   @relation(fields: [newsId], references: [id], onDelete: Cascade)
+}
+
+// Linha única (id fixo "singleton") com a configuração do filtro heurístico de
+// spam/abuso aplicado a comentários novos. Ver src/comments/moderation.service.ts.
+model ModerationSettings {
+  id       String  @id @default("singleton")
+  enabled  Boolean @default(true)
+  keywords String  @default("cassino,aposta,empréstimo fácil,clique aqui,ganhe dinheiro,http://,https://,www.")
+}
+
+model Advertisement {
+  id        String    @id @default(cuid())
+  slot      String // ex: "sidebar", "article-sidebar", "footer-banner"
+  title     String
+  imageUrl  String?
+  linkUrl   String
+  active    Boolean   @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([slot, active])
+}
+
+model Classified {
+  id          String   @id @default(cuid())
+  title       String
+  category    String // Imóveis | Veículos | Empregos | Serviços
+  price       String // texto livre: "R$ 280.000", "R$ 1.850/mês", "A combinar"...
+  description String   @default("")
+  icon        String   @default("📦")
+  imageUrl    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([active, category])
+}
