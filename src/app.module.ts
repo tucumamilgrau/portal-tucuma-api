@@ -11,6 +11,7 @@ import { CommentsModule } from './comments/comments.module';
 import { MediaModule } from './media/media.module';
 import { AdsModule } from './ads/ads.module';
 import { ClassifiedsModule } from './classifieds/classifieds.module';
+import { VideosModule } from './videos/videos.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ClassifiedsModule } from './classifieds/classifieds.module';
     MediaModule,
     AdsModule,
     ClassifiedsModule,
+    VideosModule,
   ],
   controllers: [AppController],
   providers: [AppService],

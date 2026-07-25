@@ -124,6 +124,21 @@ model Advertisement {
   @@index([slot, active])
 }
 
+model Video {
+  id           String   @id @default(cuid())
+  title        String
+  videoUrl     String
+  thumbnailUrl String?
+  icon         String   @default("🎥")
+  duration     String? // texto livre, ex: "08:32" — ignorado quando live=true
+  views        Int      @default(0)
+  live         Boolean  @default(false)
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@index([active])
+}
+
 model Classified {
   id          String   @id @default(cuid())
   title       String
