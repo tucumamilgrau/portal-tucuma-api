@@ -12,6 +12,7 @@ import { MediaModule } from './media/media.module';
 import { AdsModule } from './ads/ads.module';
 import { ClassifiedsModule } from './classifieds/classifieds.module';
 import { VideosModule } from './videos/videos.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { VideosModule } from './videos/videos.module';
     AdsModule,
     ClassifiedsModule,
     VideosModule,
+    EventsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

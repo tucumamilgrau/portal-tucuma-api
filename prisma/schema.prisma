@@ -139,6 +139,17 @@ model Video {
   @@index([active])
 }
 
+model Event {
+  id        String   @id @default(cuid())
+  title     String
+  location  String
+  eventDate DateTime
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([active, eventDate])
+}
+
 model Classified {
   id          String   @id @default(cuid())
   title       String
