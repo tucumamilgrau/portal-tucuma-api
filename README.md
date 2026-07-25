@@ -8,7 +8,7 @@ API REST em **NestJS + Prisma 7**, substituindo os dados mock (`src/data/news.ts
 |---|---|---|
 | Framework | NestJS 11 | pedido no roadmap original |
 | ORM | Prisma 7 | pedido no roadmap original (via PostgreSQL) |
-| Banco | **SQLite** (`dev.db`, arquivo local) | Não há Docker nem PostgreSQL instalados nesta máquina. SQLite roda sem instalar nada. **Trocar para Postgres é uma mudança pequena** — ver seção abaixo. |
+| Banco | **PostgreSQL** (Railway em produção; mesmo banco usado em dev local) | Pedido no roadmap original. |
 | Cache | **Serviço em memória** (`src/cache/cache.service.ts`) | Não há Docker/Redis disponível. Interface pensada para ser trocada por `ioredis` sem mexer em quem consome o cache. |
 | Validação | class-validator + class-transformer | DTOs com `ValidationPipe` global |
 
@@ -16,8 +16,9 @@ API REST em **NestJS + Prisma 7**, substituindo os dados mock (`src/data/news.ts
 
 ```bash
 npm install
-npx prisma migrate dev   # cria/atualiza o SQLite local (dev.db)
-npx prisma db seed        # popula com os mesmos dados do front-end
+# defina DATABASE_URL no .env apontando para um Postgres (ver .env.example)
+npx prisma migrate deploy   # aplica as migrações no banco
+npx prisma db seed          # popula com os mesmos dados mock do front-end (uso local/dev)
 npm run start:dev
 ```
 
@@ -101,14 +102,15 @@ JWT simples (sem Passport — um `JwtAuthGuard` próprio lê o header `Authoriza
 
 `Category`, `Author`, `News` (com `status`: DRAFT/SCHEDULED/PUBLISHED) e `Comment`, espelhando exatamente o que o front-end (`portal-tucuma-nextjs/src/data/news.ts`) já usava como mock. O seed (`prisma/seed.ts`) povoa o banco com os mesmos textos que estavam no mock, então a migração para quem usa o front-end é transparente.
 
-## Migrando de SQLite para PostgreSQL real
+## Seed em produção
 
-1. `prisma/schema.prisma`: troque `provider = "sqlite"` por `provider = "postgresql"`.
-2. Troque o driver adapter: instale `@prisma/adapter-pg pg` no lugar de `@prisma/adapter-libsql`, e troque `PrismaLibSql` por `PrismaPg` em `src/prisma/prisma.service.ts` e `prisma/seed.ts`.
-3. Aponte `DATABASE_URL` (no `.env`) para o Postgres real.
-4. `npx prisma migrate dev` novamente.
+`prisma/seed.ts` (rodado via `npx prisma db seed`) povoa o banco com os mesmos dados fictícios usados no mock do front-end — **não usar em produção**. Para popular um banco de produção (Railway), use `scripts/seed-production.ts`, que cria apenas a estrutura real (usuário admin, categorias, autor "Redação") sem nenhuma notícia fictícia:
 
-Nada nos services/controllers muda — eles falam com o Prisma Client, não com o banco diretamente.
+```bash
+DATABASE_URL="postgresql://..." npx tsx scripts/seed-production.ts
+```
+
+Notícias reais entram depois, publicadas pelo `/admin` ou importadas pelo ingestor RSS (`npm run ingest`).
 
 ## Trocando o cache em memória por Redis real
 
@@ -118,7 +120,7 @@ Nada nos services/controllers muda — eles falam com o Prisma Client, não com 
 
 - **Config não fica mais implícita no `schema.prisma`.** Vive em `prisma.config.ts`.
 - **Client é ESM por padrão.** Isso quebrava o build do Nest (`ReferenceError: exports is not defined`) porque o Nest compila para CommonJS. Solução: `moduleFormat = "cjs"` no bloco `generator client` do schema.
-- **`PrismaClient` agora exige um *driver adapter*** (`new PrismaClient({ adapter })`) — não basta mais só a `DATABASE_URL`. Aqui usamos `@prisma/adapter-libsql` (em vez de `@prisma/adapter-better-sqlite3`) porque este último precisa compilar um binário nativo via `node-gyp`, o que falhou nesta máquina por falta do Visual Studio Build Tools.
+- **`PrismaClient` agora exige um *driver adapter*** (`new PrismaClient({ adapter })`) — não basta mais só a `DATABASE_URL`. Aqui usamos `@prisma/adapter-pg`.
 - Seed roda via `tsx` (não `ts-node`) — mistura melhor com o client ESM/CJS do Prisma 7.
 - Documentação completa ficou instalada em `.agents/skills/` pelo próprio `prisma init` — útil para qualquer dúvida futura sobre esta versão.
 
