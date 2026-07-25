@@ -1,10 +1,11 @@
-// Popula o SQLite local com os mesmos dados fictícios usados no front-end
-// (src/data/news.ts do projeto portal-tucuma-nextjs), agora servidos por uma API real.
+// Popula o banco com os mesmos dados fictícios usados no front-end (src/data/news.ts
+// do projeto portal-tucuma-nextjs) — útil pra rodar localmente contra um banco vazio.
+// NÃO usar em produção: ver scripts/seed-production.ts para o seed real (sem notícias fictícias).
 import { PrismaClient } from "../generated/prisma/client";
-import { PrismaLibSql } from "@prisma/adapter-libsql";
+import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcryptjs";
 
-const adapter = new PrismaLibSql({ url: process.env.DATABASE_URL ?? "file:./dev.db" });
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 const CATEGORIES = [

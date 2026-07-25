@@ -14,12 +14,10 @@
 //
 // Uso: npm run ingest  (ou `tsx scripts/ingest-news.ts`)
 import { PrismaClient } from '../generated/prisma/client';
-import { PrismaLibSql } from '@prisma/adapter-libsql';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { XMLParser } from 'fast-xml-parser';
 
-const adapter = new PrismaLibSql({
-  url: process.env.DATABASE_URL ?? 'file:./dev.db',
-});
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 const AUTHOR_SLUG = 'redacao';

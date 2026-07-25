@@ -1,7 +1,5 @@
 // Schema da API do Portal Tucumã Milgrau.
-// Banco local: SQLite (zero-instalação, sem Docker disponível nesta máquina).
-// Para produção: trocar `provider = "sqlite"` por "postgresql" e ajustar
-// DATABASE_URL em prisma.config.ts/.env — o resto do schema não muda.
+// Banco: PostgreSQL (Railway em produção; mesmo banco usado em dev local — ver README).
 
 generator client {
   provider     = "prisma-client"
@@ -10,7 +8,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
 }
 
 enum NewsStatus {
