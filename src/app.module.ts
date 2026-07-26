@@ -13,6 +13,7 @@ import { AdsModule } from './ads/ads.module';
 import { ClassifiedsModule } from './classifieds/classifieds.module';
 import { VideosModule } from './videos/videos.module';
 import { EventsModule } from './events/events.module';
+import { ColumnsModule } from './columns/columns.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { EventsModule } from './events/events.module';
     ClassifiedsModule,
     VideosModule,
     EventsModule,
+    ColumnsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

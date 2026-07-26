@@ -34,7 +34,8 @@ model Author {
   specialty  String
   bio        String @default("")
 
-  news News[]
+  news    News[]
+  columns Column[]
 }
 
 model News {
@@ -137,6 +138,19 @@ model Video {
   createdAt    DateTime @default(now())
 
   @@index([active])
+}
+
+model Column {
+  id        String     @id @default(cuid())
+  title     String
+  excerpt   String     @default("")
+  status    NewsStatus @default(PUBLISHED)
+  createdAt DateTime   @default(now())
+
+  authorId String
+  author   Author @relation(fields: [authorId], references: [id])
+
+  @@index([status, createdAt])
 }
 
 model Event {
