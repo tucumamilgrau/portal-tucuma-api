@@ -169,6 +169,16 @@ export class NewsService {
       throw new NotFoundException(`Notícia "${slug}" não encontrada`);
     }
 
+    // Cada carregamento da página do artigo conta como uma visualização. Contador
+    // simples (sem deduplicação por sessão/IP), no mesmo nível de sofisticação do
+    // resto do projeto — alimenta "Mais Lidas", o dashboard e as estatísticas.
+    news.views += 1;
+    await this.prisma.news.update({
+      where: { id: news.id },
+      data: { views: { increment: 1 } },
+    });
+    this.cache.del(MOST_READ_CACHE_KEY);
+
     const related = await this.prisma.news.findMany({
       where: {
         categoryId: news.categoryId,
