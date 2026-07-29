@@ -8,11 +8,23 @@
 // Fontes:
 //  - Fato Regional (regional, sul do Pará) — conteúdo com "todos os direitos
 //    reservados"; por isso usamos só resumo + atribuição + link, nunca o texto
-//    integral.
+//    integral, e a foto de capa NÃO é baixada automaticamente (fica só o ícone
+//    da categoria — um admin pode adicionar foto manualmente ao publicar).
 //  - Agência Brasil / EBC (nacional) — termos de uso autorizam expressamente
-//    "reprodução mediante indicação da fonte".
+//    "reprodução mediante indicação da fonte", o que cobre também a foto de
+//    capa: baixada automaticamente da tag <imagem-destaque> do feed.
 //
 // Uso: npm run ingest  (ou `tsx scripts/ingest-news.ts`)
+//
+// Este script roda localmente (Agendador de Tarefas do Windows), mas o site
+// no ar é servido pelo Railway — por isso a foto de capa não é escrita direto
+// no disco local (o servidor de produção nunca a veria). Em vez disso, o
+// script se autentica na própria API pública (mesmas credenciais do /admin,
+// via INGEST_ADMIN_EMAIL/INGEST_ADMIN_PASSWORD no .env) e envia a foto pelo
+// mesmo endpoint de upload que o painel usa, garantindo que o arquivo fique
+// no servidor certo. Sem essas credenciais no .env, a ingestão continua
+// funcionando normalmente — só sem foto de capa (fica só o ícone).
+import 'dotenv/config';
 import { PrismaClient } from '../generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { XMLParser } from 'fast-xml-parser';
@@ -23,12 +35,30 @@ const prisma = new PrismaClient({ adapter });
 const AUTHOR_SLUG = 'redacao';
 const ITEMS_PER_SOURCE = 6;
 
+const API_URL = process.env.API_URL ?? 'https://portal-tucuma-api-production.up.railway.app/api';
+const INGEST_ADMIN_EMAIL = process.env.INGEST_ADMIN_EMAIL;
+const INGEST_ADMIN_PASSWORD = process.env.INGEST_ADMIN_PASSWORD;
+
+const IMAGE_EXT_BY_TYPE: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024; // 8MB — mesmo limite do upload manual no /admin
+
 type FeedSource = {
   name: string;
   url: string;
   feedLabel: string;
   fallbackCategory: string;
   fallbackIcon: string;
+  // Fato Regional é "todos os direitos reservados" — por isso o corpo da notícia já
+  // usa só resumo + atribuição, nunca o texto integral. Pela mesma razão, não baixamos
+  // a foto de capa deles automaticamente (fica só o ícone da categoria; se um admin
+  // quiser adicionar uma foto ao publicar, faz isso manualmente). Agência Brasil
+  // autoriza expressamente "reprodução mediante indicação da fonte", o que cobre a foto.
+  allowImageDownload: boolean;
 };
 
 const SOURCES: FeedSource[] = [
@@ -38,6 +68,7 @@ const SOURCES: FeedSource[] = [
     feedLabel: 'regional',
     fallbackCategory: 'regional',
     fallbackIcon: '📍',
+    allowImageDownload: false,
   },
   {
     name: 'Agência Brasil',
@@ -45,6 +76,7 @@ const SOURCES: FeedSource[] = [
     feedLabel: 'nacional',
     fallbackCategory: 'brasil',
     fallbackIcon: '🇧🇷',
+    allowImageDownload: true,
   },
 ];
 
@@ -173,6 +205,7 @@ type FeedItem = {
   pubDate?: string;
   description?: string;
   categories: string[];
+  imageUrl?: string;
 };
 
 // Formato bruto do XML parseado — os campos existem "se o feed os trouxer",
@@ -183,6 +216,8 @@ type RawFeedItem = {
   pubDate?: unknown;
   description?: unknown;
   category?: unknown;
+  'imagem-destaque'?: unknown; // campo próprio da Agência Brasil/EBC com a foto de capa
+  enclosure?: unknown; // <enclosure url="..." type="image/..."> — padrão RSS genérico
 };
 type RawFeed = { rss?: { channel?: { item?: RawFeedItem | RawFeedItem[] } } };
 
@@ -192,6 +227,22 @@ function toText(value: unknown): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return String(value);
   return '';
+}
+
+// Extrai a URL da imagem de capa direto do item do feed, quando o feed já
+// traz isso (Agência Brasil usa a tag própria <imagem-destaque>; outros
+// feeds RSS costumam usar <enclosure url="..." type="image/...">). Nem
+// todo feed traz isso — nesses casos cai no fallback do og:image da página.
+function extractImageUrl(item: RawFeedItem): string | undefined {
+  const destaque = toText(item['imagem-destaque']).trim();
+  if (destaque) return destaque;
+
+  const enclosure = item.enclosure as { '@_url'?: unknown; '@_type'?: unknown } | undefined;
+  const enclosureType = toText(enclosure?.['@_type']);
+  const enclosureUrl = toText(enclosure?.['@_url']).trim();
+  if (enclosureUrl && (!enclosureType || enclosureType.startsWith('image/'))) return enclosureUrl;
+
+  return undefined;
 }
 
 function parseFeed(xml: string): FeedItem[] {
@@ -216,8 +267,98 @@ function parseFeed(xml: string): FeedItem[] {
           ? stripHtml(toText(item.description))
           : '',
         categories: rawCategories.map((c) => toText(c)),
+        imageUrl: extractImageUrl(item),
       };
     });
+}
+
+// Fallback pra feeds que não trazem a imagem direto (ex.: Fato Regional): busca a
+// própria página da matéria e lê a tag <meta property="og:image">, que o WordPress
+// preenche automaticamente com a imagem de destaque do post.
+async function fetchOgImage(articleUrl: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(articleUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PortalTucumaMilgrauBot/1.0)' },
+    });
+    if (!res.ok) return undefined;
+    const html = await res.text();
+    const match = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
+    return match?.[1] ? decodeEntities(match[1]) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type ImageBuffer = { buffer: Buffer; contentType: string; ext: string };
+
+// Baixa a imagem pra memória (sem gravar em disco local — ver nota de topo do
+// arquivo). Qualquer falha (tipo não permitido, arquivo grande demais, rede
+// fora) retorna null em vez de quebrar a ingestão do item.
+async function fetchImageBuffer(imageUrl: string): Promise<ImageBuffer | null> {
+  try {
+    const res = await fetch(imageUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PortalTucumaMilgrauBot/1.0)' },
+    });
+    if (!res.ok) return null;
+
+    const contentType = res.headers.get('content-type')?.split(';')[0].trim() ?? '';
+    const ext = IMAGE_EXT_BY_TYPE[contentType];
+    if (!ext) return null;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.byteLength === 0 || buffer.byteLength > MAX_IMAGE_BYTES) return null;
+
+    return { buffer, contentType, ext };
+  } catch {
+    return null;
+  }
+}
+
+// Loga no /admin pra obter um token e poder chamar o endpoint de upload de
+// capa da própria API pública — mesmo caminho que o painel usa. Sem
+// credenciais configuradas, ou se o login falhar, retorna null e a ingestão
+// segue sem foto (nunca é motivo pra parar a ingestão de texto).
+async function loginForImageUpload(): Promise<string | null> {
+  if (!INGEST_ADMIN_EMAIL || !INGEST_ADMIN_PASSWORD) {
+    console.log(
+      '  ℹ INGEST_ADMIN_EMAIL/INGEST_ADMIN_PASSWORD não configurados no .env — ingestão vai seguir sem foto de capa.',
+    );
+    return null;
+  }
+  try {
+    const res = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: INGEST_ADMIN_EMAIL, password: INGEST_ADMIN_PASSWORD }),
+    });
+    if (!res.ok) {
+      console.warn('  ⚠ Login falhou pra upload de foto — ingestão vai seguir sem foto de capa.');
+      return null;
+    }
+    const data = (await res.json()) as { token?: string };
+    return data.token ?? null;
+  } catch {
+    console.warn('  ⚠ Não foi possível logar na API pra upload de foto — ingestão vai seguir sem foto de capa.');
+    return null;
+  }
+}
+
+// Envia a foto pro mesmo endpoint de upload que o painel /admin usa
+// (POST /news/admin/:id/cover), garantindo que o arquivo fique salvo no
+// servidor de produção (Railway), não no disco da máquina que roda o script.
+async function uploadCoverImage(token: string, newsId: string, image: ImageBuffer): Promise<boolean> {
+  try {
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(image.buffer)], { type: image.contentType }), `capa${image.ext}`);
+    const res = await fetch(`${API_URL}/news/admin/${newsId}/cover`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function fetchFeed(source: FeedSource): Promise<FeedItem[]> {
@@ -258,7 +399,7 @@ function formatDate(pubDate: string | undefined): string {
   });
 }
 
-async function ingestSource(source: FeedSource) {
+async function ingestSource(source: FeedSource, imageToken: string | null) {
   console.log(`\n→ Buscando feed de ${source.name} (${source.url})...`);
   let items: FeedItem[];
   try {
@@ -315,7 +456,7 @@ async function ingestSource(source: FeedSource) {
 
     const slug = await generateUniqueSlug(item.title);
 
-    await prisma.news.create({
+    const news = await prisma.news.create({
       data: {
         slug,
         title: item.title,
@@ -331,8 +472,16 @@ async function ingestSource(source: FeedSource) {
         sourceName: source.name,
       },
     });
+
+    let hasCover = false;
+    if (source.allowImageDownload && imageToken) {
+      const rawImageUrl = item.imageUrl ?? (await fetchOgImage(item.link));
+      const image = rawImageUrl ? await fetchImageBuffer(rawImageUrl) : null;
+      hasCover = image ? await uploadCoverImage(imageToken, news.id, image) : false;
+    }
+
     created += 1;
-    console.log(`  + [rascunho criado] (${categorySlug}) ${item.title}`);
+    console.log(`  + [rascunho criado] (${categorySlug}${hasCover ? ', com foto' : ', sem foto'}) ${item.title}`);
   }
 
   return { created, skipped };
@@ -344,11 +493,13 @@ async function main() {
     'Todas as notícias entram como RASCUNHO. Nada é publicado sem revisão humana no /admin.',
   );
 
+  const imageToken = await loginForImageUpload();
+
   let totalCreated = 0;
   let totalSkipped = 0;
 
   for (const source of SOURCES) {
-    const { created, skipped } = await ingestSource(source);
+    const { created, skipped } = await ingestSource(source, imageToken);
     totalCreated += created;
     totalSkipped += skipped;
   }
