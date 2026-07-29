@@ -56,4 +56,9 @@ export class CreateNewsDto {
   @IsString()
   @IsNotEmpty()
   authorSlug: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  videoUrl?: string;
 }

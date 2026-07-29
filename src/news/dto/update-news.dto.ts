@@ -60,4 +60,9 @@ export class UpdateNewsDto {
   @IsOptional()
   @IsString()
   authorSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  videoUrl?: string;
 }

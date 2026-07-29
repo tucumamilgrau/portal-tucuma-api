@@ -53,6 +53,9 @@ model News {
   publishedAt DateTime   @default(now())
   // Controla o slider "Notícias em Destaque" da home — marcado manualmente no /admin.
   featured    Boolean    @default(false)
+  // Vídeo opcional exibido abaixo do texto da notícia (link do YouTube vira player
+  // incorporado; outros links viram um botão "Assistir ao vídeo").
+  videoUrl    String?
 
   // Preenchidos apenas para notícias importadas automaticamente (ver scripts/ingest-news.ts).
   // sourceUrl é único para servir de chave de deduplicação entre execuções do ingestor.
