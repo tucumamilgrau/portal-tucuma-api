@@ -8,10 +8,16 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService } from '../mail/mail.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+
+const RESET_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 min
 
 type UserRecord = {
   id: string;
@@ -33,6 +39,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mail: MailService,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -84,6 +91,62 @@ export class AuthService {
       where: { id: userId },
       data: { passwordHash },
     });
+    return { ok: true };
+  }
+
+  // ---------- Recuperação de senha ----------
+
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    // Resposta genérica sempre — não revela se o e-mail existe ou não na base.
+    if (!user) return { ok: true };
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+
+    await this.prisma.passwordReset.create({
+      data: {
+        tokenHash,
+        userId: user.id,
+        expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+      },
+    });
+
+    const frontendUrl = process.env.FRONTEND_URL ?? 'https://portaltucumamilgrau.com.br';
+    const resetUrl = `${frontendUrl}/redefinir-senha?token=${rawToken}`;
+    await this.mail.sendPasswordResetEmail(user.email, resetUrl);
+
+    return { ok: true };
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const tokenHash = createHash('sha256').update(dto.token).digest('hex');
+    const reset = await this.prisma.passwordReset.findUnique({
+      where: { tokenHash },
+    });
+
+    if (
+      !reset ||
+      reset.usedAt ||
+      reset.expiresAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException('Link de redefinição inválido ou expirado');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: reset.userId },
+        data: { passwordHash },
+      }),
+      this.prisma.passwordReset.update({
+        where: { id: reset.id },
+        data: { usedAt: new Date() },
+      }),
+    ]);
+
     return { ok: true };
   }
 

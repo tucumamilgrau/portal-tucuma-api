@@ -86,6 +86,24 @@ model User {
   city         String   @default("")
   role         UserRole @default(READER)
   createdAt    DateTime @default(now())
+
+  passwordResets PasswordReset[]
+}
+
+// Token de redefinição de senha ("esqueci a senha"). Guarda o hash do token
+// (nunca o valor bruto, que só existe no link enviado por e-mail) — evita que
+// um vazamento do banco permita redefinir senhas de terceiros diretamente.
+model PasswordReset {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model Comment {
