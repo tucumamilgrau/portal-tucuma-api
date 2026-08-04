@@ -1,40 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
-  private readonly transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.GMAIL_USER,
-      pass: process.env.GMAIL_APP_PASSWORD,
-    },
-    // Sem isso, uma conexão SMTP que trava (comum em plataformas cloud que
-    // restringem saída SMTP) deixa a requisição inteira pendurada — o
-    // "esqueci a senha" nunca resolve nem erro nem sucesso pro usuário.
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 10_000,
-  });
+  private readonly resend = process.env.RESEND_API_KEY
+    ? new Resend(process.env.RESEND_API_KEY)
+    : null;
 
-  private get configured(): boolean {
-    return Boolean(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+  private get from(): string {
+    return process.env.RESEND_FROM_EMAIL ?? 'Portal Tucumã Milgrau <onboarding@resend.dev>';
   }
 
   async sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
-    if (!this.configured) {
-      this.logger.warn(
-        'GMAIL_USER/GMAIL_APP_PASSWORD não configurados — e-mail de redefinição não enviado.',
-      );
+    if (!this.resend) {
+      this.logger.warn('RESEND_API_KEY não configurada — e-mail de redefinição não enviado.');
       return;
     }
 
-    // Nunca deixa uma falha/timeout de e-mail travar ou derrubar o fluxo de
+    // Nunca deixa uma falha de envio travar ou derrubar o fluxo de
     // "esqueci a senha" — o token já foi criado no banco de qualquer forma.
     try {
-      await this.transporter.sendMail({
-        from: `"Portal Tucumã Milgrau" <${process.env.GMAIL_USER}>`,
+      const { error } = await this.resend.emails.send({
+        from: this.from,
         to,
         subject: 'Redefinição de senha — Portal Tucumã Milgrau',
         html: `
@@ -52,6 +40,9 @@ export class MailService {
           </div>
         `,
       });
+      if (error) {
+        this.logger.error(`Falha ao enviar e-mail de redefinição para ${to}: ${error.message}`);
+      }
     } catch (err) {
       this.logger.error(
         `Falha ao enviar e-mail de redefinição para ${to}: ${(err as Error).message}`,
