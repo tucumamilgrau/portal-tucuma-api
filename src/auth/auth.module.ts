@@ -11,7 +11,7 @@ import { MailModule } from '../mail/mail.module';
     JwtModule.register({
       // Em produção, defina JWT_SECRET no ambiente — este valor só serve para desenvolvimento local.
       secret: process.env.JWT_SECRET ?? 'dev-secret-troque-em-producao',
-      signOptions: { expiresIn: '7d' },
+      signOptions: { expiresIn: '1h' },
     }),
     MailModule,
   ],
